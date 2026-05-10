@@ -551,7 +551,7 @@
     <a href="#ps5">Experiencia La Previa</a>
     <a href="#equipo">Equipo</a>
     <a href="#ubicacion">Ubicación</a>
-    <a href="#reservar" class="btn-gold">Reservar ahora</a>
+    <a href="#servicios" class="btn-gold">Reservar ahora</a>
   </div>
   <button class="nav-mob-btn" onclick="openMobMenu()">&#9776;</button>
 </nav>
@@ -564,7 +564,7 @@
   <a href="#ps5" onclick="closeMobMenu()">Experiencia La Previa</a>
   <a href="#equipo" onclick="closeMobMenu()">Equipo</a>
   <a href="#ubicacion" onclick="closeMobMenu()">Ubicación</a>
-  <a href="#reservar" onclick="closeMobMenu()" class="btn-gold" style="margin-top:.5rem">Reservar ahora</a>
+  <a href="#servicios" onclick="closeMobMenu()" class="btn-gold" style="margin-top:.5rem">Reservar ahora</a>
 </div>
 
 <!-- ══════════════════════════════════════════
@@ -596,7 +596,7 @@
     </p>
 
     <div class="hero-ctas fade-up">
-      <a href="#reservar" class="btn-gold">Reservar turno</a>
+      <a href="#servicios" class="btn-gold">Reservar turno</a>
       <a href="#galeria" class="btn-outline">Ver trabajos</a>
     </div>
   </div>
@@ -666,6 +666,18 @@
           </div>
         </div>
         <div class="svc-btn"><button class="btn-gold" onclick="bookService(1)">Reservar este servicio</button></div>
+      </div>
+    </div>
+    <div id="reservar" style="max-width:660px;margin:3rem auto 0;display:none">
+      <div class="booking-wrap">
+        <div class="booking-progress">
+          <div class="b-tab active" id="tab1">Servicio</div>
+          <div class="b-tab" id="tab2">Fecha</div>
+          <div class="b-tab" id="tab3">Hora</div>
+          <div class="b-tab" id="tab4">Tus datos</div>
+          <div class="b-tab" id="tab5">Confirmar</div>
+        </div>
+        <div class="b-body" id="bookingBody"></div>
       </div>
     </div>
   </div>
@@ -738,20 +750,6 @@
       <div class="ig-section-text fade-up">
         <div class="label">Síguenos</div>
         <h2 class="big-title">Somos<br>@lapreviastudio<br>barber</h2>
-        <div class="ig-section-stats" style="margin-top:1rem">
-          <div class="ig-section-stat">
-            <div class="ig-section-num" id="ig-followers">307</div>
-            <div class="ig-section-lbl">Seguidores</div>
-          </div>
-          <div class="ig-section-stat">
-            <div class="ig-section-num">11</div>
-            <div class="ig-section-lbl">Posts</div>
-          </div>
-          <div class="ig-section-stat">
-            <div class="ig-section-num">5.0</div>
-            <div class="ig-section-lbl">Rating</div>
-          </div>
-        </div>
         <p style="color:var(--muted);font-size:.88rem;line-height:1.75;margin-top:.75rem;margin-bottom:1.5rem">
           Seguinos para ver los trabajos más recientes, novedades y todo lo que pasa en La Previa.
         </p>
@@ -777,8 +775,6 @@
         </div>
         <div class="ig-stats">
           <div class="ig-stat"><span class="ig-num">11</span><span class="ig-lbl">Posts</span></div>
-          <div class="ig-stat"><span class="ig-num">307</span><span class="ig-lbl">Seguidores</span></div>
-          <div class="ig-stat"><span class="ig-num">166</span><span class="ig-lbl">Seguidos</span></div>
         </div>
         <div class="ig-bio">Aquí comienza lo importante 🪩
 Lunes a sábado · 10:00 – 21:00
@@ -802,25 +798,6 @@ Lunes a sábado · 10:00 – 21:00
 <!-- ══════════════════════════════════════════
      BOOKING
 ══════════════════════════════════════════ -->
-<section id="reservar">
-  <div class="container">
-    <div class="fade-up">
-      <div class="label">Agenda en línea</div>
-      <h2 class="big-title">Reserva tu turno</h2>
-    </div>
-    <div class="booking-wrap">
-      <div class="booking-progress">
-        <div class="b-tab active" id="tab1">Servicio</div>
-        <div class="b-tab" id="tab2">Fecha</div>
-        <div class="b-tab" id="tab3">Hora</div>
-        <div class="b-tab" id="tab4">Tus datos</div>
-        <div class="b-tab" id="tab5">Confirmar</div>
-      </div>
-      <div class="b-body" id="bookingBody"></div>
-    </div>
-  </div>
-</section>
-
 <!-- ══════════════════════════════════════════
      LOCATION
 ══════════════════════════════════════════ -->
@@ -895,7 +872,7 @@ Lunes a sábado · 10:00 – 21:00
       </div>
       <div class="footer-cta">
         <p>¿Listo para tu próximo corte?</p>
-        <a href="#reservar" class="btn-gold">Reservar ahora</a>
+        <a href="#servicios" class="btn-gold">Reservar ahora</a>
       </div>
     </div>
     <div class="footer-bottom">
@@ -1354,10 +1331,10 @@ function renderSuccess(){
   <div style="margin-top:1.5rem"><button class="btn-back" onclick="resetBooking()">Hacer otra reserva</button></div>
   </div>`;
 }
-function resetBooking(){ bk={step:1,barber:null,service:null,date:null,time:null,client:{name:'',phone:'',email:'',note:''},bookingId:null}; initCal(); renderBooking(); }
+function resetBooking(){ bk={step:1,barber:null,service:null,date:null,time:null,client:{name:'',phone:'',email:'',note:''},bookingId:null}; const el=document.getElementById('reservar'); if(el) el.style.display='none'; initCal(); }
 function nextStep(){ if(bk.step<5){bk.step++;renderBooking();} }
 function prevStep(){ if(bk.step>1){bk.step--;renderBooking();} }
-function bookService(i){ bk.service=i; bk.step=1; document.getElementById('reservar').scrollIntoView({behavior:'smooth'}); setTimeout(()=>{ bk.step=2; renderBooking(); },300); }
+function bookService(i){ bk.service=i; bk.step=2; const el=document.getElementById('reservar'); el.style.display='block'; renderBooking(); setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),100); }
 renderBooking();
 
 // ═══════════════════════════════════════════════
