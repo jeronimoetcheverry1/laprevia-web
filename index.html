@@ -973,15 +973,15 @@ async function sendNotifications(booking,svc,fd){
   }
   // Push notification al barbero vía ntfy.sh
   if(cfg.ntfyTopic){
-    const body=`✂️ ${booking.servicio}\n👤 ${booking.clienteNombre} — ${booking.clienteTelefono}\n📅 ${fd.charAt(0).toUpperCase()+fd.slice(1)} a las ${booking.hora}\n📋 ${booking.id}${booking.nota?'\n💬 '+booking.nota:''}`;
+    const body=`Servicio: ${booking.servicio}\nCliente: ${booking.clienteNombre} - ${booking.clienteTelefono}\nFecha: ${fd.charAt(0).toUpperCase()+fd.slice(1)} a las ${booking.hora}\nID: ${booking.id}${booking.nota?'\nNota: '+booking.nota:''}`;
     try{
       await fetch(`https://ntfy.sh/${cfg.ntfyTopic}`,{
         method:'POST',
         headers:{
-          'Title':'🔔 Nueva reserva — La Previa',
+          'Title':'Nueva reserva - La Previa',
           'Priority':'high',
           'Tags':'scissors,calendar',
-          'Content-Type':'text/plain'
+          'Content-Type':'text/plain; charset=utf-8'
         },
         body
       });
@@ -1808,9 +1808,9 @@ function renderNotifAdmin(){
     <strong style="color:#fff;font-size:.85rem">📲 Push al teléfono del barbero — ntfy.sh (gratis)</strong><br>
     Llega una notificación instantánea al teléfono del barbero sin que el cliente haga nada.<br>
     1. Descarga la app <strong style="color:var(--text)">ntfy</strong> en tu celular (iOS o Android, gratis)<br>
-    2. Dentro de la app, suscribite al tema que escribas abajo (ej: <code style="color:var(--gold)">laprevia-2024</code>)<br>
-    3. Pon ese mismo tema aquí y guardá — eso es todo<br>
-    <strong style="color:#e74c3c;font-size:.75rem">⚠ Usá un tema único y difícil de adivinar para que nadie más lo vea</strong>
+    2. Dentro de la app, suscríbete al tema que escribas abajo (ej: <code style="color:var(--gold)">laprevia-2024</code>)<br>
+    3. Escribe ese mismo tema aquí y guarda — eso es todo<br>
+    <strong style="color:#e74c3c;font-size:.75rem">⚠ Usa un tema único y difícil de adivinar para que nadie más lo vea</strong>
   </div>
   <div class="adm-field" style="margin-bottom:1.1rem">
     <label>Tema ntfy.sh (tu canal privado)</label>
@@ -1822,10 +1822,10 @@ function renderNotifAdmin(){
 
   <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:1.1rem 1.25rem;margin-bottom:1.1rem;font-size:.8rem;line-height:1.8;color:var(--muted)">
     <strong style="color:#fff;font-size:.85rem">📧 Email de confirmación — EmailJS (gratis, 200/mes)</strong><br>
-    El cliente recibe un email con los datos de su reserva. Vos recibís otro con los datos del cliente.<br>
-    1. Creá cuenta en <a href="https://www.emailjs.com" target="_blank" style="color:var(--gold)">emailjs.com</a> y conectá tu Gmail<br>
-    2. Creá 2 templates en "Email Templates" — uno para el <strong style="color:var(--text)">cliente</strong>, otro para <strong style="color:var(--text)">vos</strong><br>
-    3. Pegá los IDs abajo<br>
+    El cliente recibe un email con los datos de su reserva. Tú recibes otro con los datos del cliente.<br>
+    1. Crea una cuenta en <a href="https://www.emailjs.com" target="_blank" style="color:var(--gold)">emailjs.com</a> y conecta tu Gmail<br>
+    2. Crea 2 templates en "Email Templates" — uno para el <strong style="color:var(--text)">cliente</strong>, otro para <strong style="color:var(--text)">ti</strong><br>
+    3. Pega los IDs abajo<br>
     <details style="margin-top:.3rem"><summary style="color:var(--gold);cursor:pointer">Variables para los templates ▼</summary>
     <div style="margin-top:.4rem;font-family:monospace;font-size:.73rem;background:var(--bg4);padding:.65rem;border-radius:6px;color:var(--text)">
       {{reserva_id}} — {{cliente_nombre}} — {{cliente_email}}<br>
@@ -1839,10 +1839,10 @@ function renderNotifAdmin(){
   </div>
   <div class="adm-2col">
     <div class="adm-field"><label>Template ID — Email al cliente</label><input id="ncTplC" value="${cfg.templateCliente||''}" placeholder="Ej: template_cliente"></div>
-    <div class="adm-field"><label>Template ID — Email a vos (barbero)</label><input id="ncTplB" value="${cfg.templateBarbero||''}" placeholder="Ej: template_barbero"></div>
+    <div class="adm-field"><label>Template ID — Email al barbero</label><input id="ncTplB" value="${cfg.templateBarbero||''}" placeholder="Ej: template_barbero"></div>
   </div>
   <div class="adm-field" style="margin-bottom:.75rem">
-    <label>Tu email (donde recibís las reservas)</label>
+    <label>Tu email (donde recibes las reservas)</label>
     <div style="display:flex;gap:.5rem;align-items:center">
       <input id="ncEmail" type="email" value="${cfg.emailBarbero||''}" placeholder="tumail@gmail.com" style="flex:1">
       <button class="btn-outline" onclick="testNotifEmail()" style="font-size:.75rem;padding:.45rem .9rem;white-space:nowrap">Probar email</button>
@@ -1868,10 +1868,10 @@ function saveNotifAdmin(){
 async function testNtfy(){
   const topic=document.getElementById('ncNtfy')?.value.trim();
   const el=document.getElementById('notifStatus');
-  if(!topic){ if(el){el.textContent='⚠ Escribí el tema primero';el.style.color='#e74c3c';} return; }
+  if(!topic){ if(el){el.textContent='⚠ Escribe el tema primero';el.style.color='#e74c3c';} return; }
   if(el){el.textContent='Enviando push de prueba...';el.style.color='var(--muted)';}
   try{
-    await fetch('https://ntfy.sh/'+topic,{method:'POST',headers:{'Title':'🔔 Prueba — La Previa','Priority':'high','Tags':'scissors,white_check_mark','Content-Type':'text/plain'},body:'✂️ Corte de cabello\n👤 Cliente de prueba — +56 9 0000 0000\n📅 Hoy a las 11:00\n📋 TEST-000000'});
+    await fetch('https://ntfy.sh/'+topic,{method:'POST',headers:{'Title':'Prueba - La Previa','Priority':'high','Tags':'scissors,white_check_mark','Content-Type':'text/plain; charset=utf-8'},body:'Corte de cabello\nCliente de prueba - +56 9 0000 0000\nHoy a las 11:00\nTEST-000000'});
     if(el){el.textContent='✓ Push enviado — revisá la app ntfy en tu celular';el.style.color='#2ecc71';}
   }catch(e){
     if(el){el.textContent='✗ Error: '+e.message;el.style.color='#e74c3c';}
