@@ -671,7 +671,7 @@
     <div id="reservar" style="max-width:660px;margin:3rem auto 0;display:none">
       <div class="booking-wrap">
         <div class="booking-progress">
-          <div class="b-tab active" id="tab1">Servicio</div>
+          <div class="b-tab active" id="tab1">Barbero</div>
           <div class="b-tab" id="tab2">Fecha</div>
           <div class="b-tab" id="tab3">Hora</div>
           <div class="b-tab" id="tab4">Tus datos</div>
@@ -945,21 +945,20 @@ async function sendNotifications(booking,svc,fd){
       catch(e){ console.warn('EmailJS barbero:',e); }
     }
   }
-  // Push notification al barbero vía ntfy.sh
+  const ntfyBody=`Servicio: ${booking.servicio}\nCliente: ${booking.clienteNombre} - ${booking.clienteTelefono}\nFecha: ${fd.charAt(0).toUpperCase()+fd.slice(1)} a las ${booking.hora}\nID: ${booking.id}${booking.nota?'\nNota: '+booking.nota:''}`;
+  const ntfyHeaders={'Title':'Nueva reserva - La Previa','Priority':'high','Tags':'scissors,calendar','Content-Type':'text/plain; charset=utf-8'};
+  // Push global (admin)
   if(cfg.ntfyTopic){
-    const body=`Servicio: ${booking.servicio}\nCliente: ${booking.clienteNombre} - ${booking.clienteTelefono}\nFecha: ${fd.charAt(0).toUpperCase()+fd.slice(1)} a las ${booking.hora}\nID: ${booking.id}${booking.nota?'\nNota: '+booking.nota:''}`;
-    try{
-      await fetch(`https://ntfy.sh/${cfg.ntfyTopic}`,{
-        method:'POST',
-        headers:{
-          'Title':'Nueva reserva - La Previa',
-          'Priority':'high',
-          'Tags':'scissors,calendar',
-          'Content-Type':'text/plain; charset=utf-8'
-        },
-        body
-      });
-    }catch(e){ console.warn('ntfy:',e); }
+    try{ await fetch('https://ntfy.sh/'+cfg.ntfyTopic,{method:'POST',headers:ntfyHeaders,body:ntfyBody}); }catch(e){ console.warn('ntfy admin:',e); }
+  }
+  // Push personal al barbero asignado
+  const barbers=getBarbersStore();
+  const assignedBarber=barbers.find(b=>b.name===booking.barbero);
+  if(assignedBarber){
+    const bCfg=getBarberNotif(assignedBarber.id);
+    if(bCfg.ntfyTopic && bCfg.ntfyTopic!==cfg.ntfyTopic){
+      try{ await fetch('https://ntfy.sh/'+bCfg.ntfyTopic,{method:'POST',headers:ntfyHeaders,body:ntfyBody}); }catch(e){ console.warn('ntfy barbero:',e); }
+    }
   }
 }
 const SERVICES = [
@@ -1149,7 +1148,7 @@ initCal();
 
 function getBookings(){ return JSON.parse(localStorage.getItem(CFG.storageKey)||'[]'); }
 function saveBookings(bks){ localStorage.setItem(CFG.storageKey,JSON.stringify(bks)); }
-function getTakenSlots(d){ return getBookings().filter(b=>b.fecha===d&&b.estado!=='cancelada').map(b=>b.hora); }
+function getTakenSlots(d,barbero){ return getBookings().filter(b=>b.fecha===d&&b.estado!=='cancelada'&&(!barbero||b.barbero===barbero)).map(b=>b.hora); }
 function genSlots(){
   const s=[]; let h=CFG.openHour,m=0;
   while(true){
@@ -1208,7 +1207,7 @@ function renderStep1(){
   </div>
   <div class="b-actions"><button class="btn-next" onclick="nextStep()" ${bk.service===null?'disabled':''}>Continuar →</button></div>`;
 }
-function selBarber(i){ bk.barber=getBarbersStore()[i]; renderBooking(); }
+function selBarber(i){ bk.barber=getBarbersStore()[i]; if(bk.service!==null) bk.step=2; renderBooking(); }
 function selService(i){ bk.service=i; renderBooking(); }
 function renderCal(){
   const months=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -1247,7 +1246,7 @@ function renderCal(){
 function selDate(d){ bk.date=d; renderBooking(); }
 function calMove(d){ calMonth+=d; if(calMonth<0){calMonth=11;calYear--;} if(calMonth>11){calMonth=0;calYear++;} renderBooking(); }
 function renderSlots(){
-  const slots=genSlots(), taken=getTakenSlots(bk.date);
+  const slots=genSlots(), taken=getTakenSlots(bk.date, bk.barber?.name);
   const dObj=new Date(bk.date+'T00:00:00');
   const fd=dObj.toLocaleDateString('es-CL',{weekday:'long',day:'numeric',month:'long'});
   return `<div class="b-title">Elige la hora</div>
@@ -1331,7 +1330,20 @@ function renderSuccess(){
 function resetBooking(){ bk={step:1,barber:null,service:null,date:null,time:null,client:{name:'',phone:'',email:'',note:''},bookingId:null}; const el=document.getElementById('reservar'); if(el) el.style.display='none'; initCal(); }
 function nextStep(){ if(bk.step<5){bk.step++;renderBooking();} }
 function prevStep(){ if(bk.step>1){bk.step--;renderBooking();} }
-function bookService(i){ bk.service=i; bk.step=2; const el=document.getElementById('reservar'); el.style.display='block'; renderBooking(); setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),100); }
+function bookService(i){
+  bk.service=i;
+  const barbers=getBarbersStore();
+  const el=document.getElementById('reservar');
+  el.style.display='block';
+  if(barbers.length>1 && bk.barber===null){
+    bk.step=1;
+  } else {
+    if(!bk.barber && barbers.length===1) bk.barber=barbers[0];
+    bk.step=2;
+  }
+  renderBooking();
+  setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),100);
+}
 renderBooking();
 
 // ═══════════════════════════════════════════════
@@ -1339,7 +1351,7 @@ renderBooking();
 // ═══════════════════════════════════════════════
 function openAdmin(){ document.getElementById('admin').classList.add('open'); renderAdmin(); }
 function closeAdmin(){ document.getElementById('admin').classList.remove('open'); }
-let admFilter='todas', admView='cal', admSection='reservas';
+let admFilter='todas', admView='cal', admSection='reservas', admBarberFilter='todos';
 let admCalY=new Date().getFullYear(), admCalM=new Date().getMonth(), admCalSel=null;
 let admBarberFormOpen=false, admBarberEditing=null, admLoginType='admin';
 const SK_BARBER='lp_barber_sess';
@@ -1353,7 +1365,8 @@ function renderAdmin(){
   document.getElementById('adminContent').innerHTML=html;
 }
 function setAdmView(v){ admView=v; renderAdmin(); }
-function setAdmSection(s){ admSection=s; admBarberFormOpen=false; admBarberEditing=null; renderAdmin(); }
+function setAdmSection(s){ admSection=s; admBarberFormOpen=false; admBarberEditing=null; admBarberFilter='todos'; renderAdmin(); }
+function setAdmBarberFilter(b){ admBarberFilter=b; renderAdmin(); }
 function admCalNav(d){ admCalM+=d; if(admCalM<0){admCalM=11;admCalY--;}if(admCalM>11){admCalM=0;admCalY++;} renderAdmin(); }
 function admCalSel_(date){ admCalSel=date; renderAdmin(); }
 function setLoginType(t){ admLoginType=t; renderAdmin(); }
@@ -1395,6 +1408,11 @@ function barberLogin(){
   } else { document.getElementById('admErr').style.display='block'; }
 }
 function barberLogout(){ sessionStorage.removeItem(SK_BARBER); renderAdmin(); }
+let barberDashTab='cal';
+function setBarberTab(t){ barberDashTab=t; renderAdmin(); }
+function getBarberNotif(id){ try{return JSON.parse(localStorage.getItem('lp_bnotif_'+id))||{};}catch{return{};} }
+function saveBarberNotif(id,cfg){ localStorage.setItem('lp_bnotif_'+id,JSON.stringify(cfg)); }
+
 function renderBarberDash(barberId){
   const barber=getBarbersStore().find(b=>b.id===barberId);
   if(!barber){ barberLogout(); return renderLogin(); }
@@ -1402,6 +1420,27 @@ function renderBarberDash(barberId){
   const today=new Date().toISOString().split('T')[0];
   const pend=bks.filter(b=>b.estado==='pendiente').length;
   const hoy=bks.filter(b=>b.fecha===today&&b.estado!=='cancelada').length;
+
+  const header=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;gap:.6rem">
+    <div style="display:flex;align-items:center;gap:.8rem">
+      ${barber.img?`<img src="${barber.img}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--gold)">`:''}
+      <div><div style="font-weight:700;font-size:.95rem">${barber.name}</div>
+      <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">${barber.role}</div></div>
+    </div>
+    <button class="btn-back" onclick="barberLogout()">Cerrar sesión</button>
+  </div>
+  <div class="adm-stats" style="margin-bottom:1.1rem">
+    <div class="adm-stat"><div class="adm-stat-n">${bks.length}</div><div class="adm-stat-l">Mis reservas</div></div>
+    <div class="adm-stat"><div class="adm-stat-n" style="color:var(--gold)">${pend}</div><div class="adm-stat-l">Pendientes</div></div>
+    <div class="adm-stat"><div class="adm-stat-n">${hoy}</div><div class="adm-stat-l">Hoy</div></div>
+  </div>
+  <div class="adm-nav" style="margin-bottom:1.1rem">
+    <button class="adm-nav-btn${barberDashTab==='cal'?' active':''}" onclick="setBarberTab('cal')">Mis reservas</button>
+    <button class="adm-nav-btn${barberDashTab==='notif'?' active':''}" onclick="setBarberTab('notif')">Notificaciones</button>
+  </div>`;
+
+  if(barberDashTab==='notif') return header+renderBarberNotifSection(barberId);
+
   const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const DAYS=['L','M','X','J','V','S','D'];
   // Build calendar for barber
@@ -1443,22 +1482,7 @@ function renderBarberDash(barberId){
         </div>`).join('')}
     </div>`;
   }
-  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:.6rem">
-    <div style="display:flex;align-items:center;gap:.8rem">
-      ${barber.img?`<img src="${barber.img}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--gold)">`:''}
-      <div>
-        <div style="font-weight:700;font-size:.95rem">${barber.name}</div>
-        <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">${barber.role}</div>
-      </div>
-    </div>
-    <button class="btn-back" onclick="barberLogout()">Cerrar sesión</button>
-  </div>
-  <div class="adm-stats" style="margin-bottom:1.25rem">
-    <div class="adm-stat"><div class="adm-stat-n">${bks.length}</div><div class="adm-stat-l">Mis reservas</div></div>
-    <div class="adm-stat"><div class="adm-stat-n" style="color:var(--gold)">${pend}</div><div class="adm-stat-l">Pendientes</div></div>
-    <div class="adm-stat"><div class="adm-stat-n">${hoy}</div><div class="adm-stat-l">Hoy</div></div>
-  </div>
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.4rem">
+  return header+`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.4rem">
     <div class="adm-cal-nav">
       <button class="adm-cal-nav-btn" onclick="admCalNav(-1)">&#8592;</button>
       <div class="adm-cal-month">${MONTHS[admCalM]} ${admCalY}</div>
@@ -1466,6 +1490,52 @@ function renderBarberDash(barberId){
     </div>
     <div class="adm-cal-grid">${heads}${empties}${cells}</div>
   </div>${detail}`;
+}
+function renderBarberNotifSection(barberId){
+  const cfg=getBarberNotif(barberId);
+  return `<div style="font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:1rem">Mis notificaciones</div>
+
+  <div style="background:var(--bg3);border:1px solid var(--gold);border-radius:10px;padding:1.1rem 1.25rem;margin-bottom:1.2rem;font-size:.8rem;line-height:1.8;color:var(--muted)">
+    <strong style="color:#fff;font-size:.9rem">¿Qué es esto?</strong><br>
+    <strong style="color:var(--gold)">ntfy</strong> es una app gratuita que te manda una notificación al celular cada vez que un cliente hace una reserva contigo — sin que tengas que estar mirando el panel.<br><br>
+    <strong style="color:#fff">Cómo activarlo (2 minutos):</strong><br>
+    1. Descarga la app <strong style="color:var(--text)">ntfy</strong> en tu celular<br>
+    &nbsp;&nbsp;&nbsp;• iPhone: <strong style="color:var(--text)">App Store</strong> → busca "ntfy"<br>
+    &nbsp;&nbsp;&nbsp;• Android: <strong style="color:var(--text)">Play Store</strong> → busca "ntfy"<br>
+    2. Abre la app → toca el botón <strong style="color:var(--text)">+</strong><br>
+    3. Escribe el nombre de tu canal (ej: <code style="color:var(--gold)">adrian-laprevia-2024</code>) → Suscribirse<br>
+    4. Escribe ese mismo nombre abajo y guarda<br>
+    5. Toca <strong style="color:var(--text)">Probar</strong> — deberías recibir una notificación en segundos<br><br>
+    <strong style="color:#e74c3c;font-size:.75rem">⚠ Usa un nombre único y difícil de adivinar — ese canal es solo tuyo</strong>
+  </div>
+
+  <div class="adm-field" style="margin-bottom:.8rem">
+    <label>Nombre de tu canal ntfy</label>
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <input id="bNtfy" value="${cfg.ntfyTopic||''}" placeholder="Ej: adrian-laprevia-2024" style="flex:1">
+      <button class="btn-outline" onclick="testBarberNtfy('${barberId}')" style="font-size:.75rem;padding:.45rem .9rem;white-space:nowrap">Probar</button>
+    </div>
+  </div>
+  <button class="btn-gold" onclick="saveBarberNotifSection('${barberId}')" style="font-size:.8rem;padding:.6rem 1.6rem">Guardar</button>
+  <div id="bNotifStatus" style="margin-top:.65rem;font-size:.8rem;color:var(--muted)"></div>`;
+}
+function saveBarberNotifSection(barberId){
+  const cfg={ ntfyTopic: document.getElementById('bNtfy')?.value.trim()||'' };
+  saveBarberNotif(barberId, cfg);
+  const el=document.getElementById('bNotifStatus');
+  if(el){ el.textContent='✓ Guardado'; el.style.color='var(--gold)'; setTimeout(()=>{el.textContent='';},2500); }
+}
+async function testBarberNtfy(barberId){
+  const topic=document.getElementById('bNtfy')?.value.trim();
+  const el=document.getElementById('bNotifStatus');
+  if(!topic){ if(el){el.textContent='⚠ Escribe el nombre del canal primero';el.style.color='#e74c3c';} return; }
+  if(el){el.textContent='Enviando...';el.style.color='var(--muted)';}
+  try{
+    await fetch('https://ntfy.sh/'+topic,{method:'POST',headers:{'Title':'Prueba - La Previa','Priority':'high','Tags':'scissors,white_check_mark','Content-Type':'text/plain; charset=utf-8'},body:'Notificacion de prueba\nCuando un cliente te reserve, te llegara un mensaje como este.'});
+    if(el){el.textContent='✓ Enviado — revisa la app ntfy en tu celular';el.style.color='#2ecc71';}
+  }catch(e){
+    if(el){el.textContent='✗ Error: '+e.message;el.style.color='#e74c3c';}
+  }
 }
 function renderDashboard(){
   const bks=getBookings(), today=new Date().toISOString().split('T')[0];
@@ -1480,30 +1550,43 @@ function renderDashboard(){
       ${sections.map(([k,l])=>`<button class="adm-nav-btn${admSection===k?' active':''}" onclick="setAdmSection('${k}')">${l}</button>`).join('')}
     </div>`;
   if(admSection==='reservas'){
-    const statsBar=`<div class="adm-stats" style="margin-bottom:1.25rem">
-      <div class="adm-stat"><div class="adm-stat-n">${bks.length}</div><div class="adm-stat-l">Total</div></div>
-      <div class="adm-stat"><div class="adm-stat-n" style="color:var(--gold)">${pend}</div><div class="adm-stat-l">Pendientes</div></div>
-      <div class="adm-stat"><div class="adm-stat-n" style="color:#2ecc71">${done}</div><div class="adm-stat-l">Completadas</div></div>
-      <div class="adm-stat"><div class="adm-stat-n">${hoy}</div><div class="adm-stat-l">Hoy</div></div>
+    const barbers=getBarbersStore();
+    const barberTabs=barbers.length>1?`<div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.9rem;align-items:center">
+      <span style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:.2rem">Barbero:</span>
+      ${[{name:'Todos',id:'todos'},...barbers].map(b=>`<button class="fil-btn${admBarberFilter===(b.id||b.name)?' active':''}" onclick="setAdmBarberFilter('${b.id||b.name}')">${b.name}</button>`).join('')}
+    </div>`:'';
+    let bksFilt=admBarberFilter==='todos'?bks:bks.filter(b=>{ const br=barbers.find(x=>x.id===admBarberFilter); return br&&b.barbero===br.name; });
+    const pendF=bksFilt.filter(b=>b.estado==='pendiente').length;
+    const doneF=bksFilt.filter(b=>b.estado==='completada').length;
+    const hoyF=bksFilt.filter(b=>b.fecha===today&&b.estado!=='cancelada').length;
+    const statsBar=`<div class="adm-stats" style="margin-bottom:1rem">
+      <div class="adm-stat"><div class="adm-stat-n">${bksFilt.length}</div><div class="adm-stat-l">Total</div></div>
+      <div class="adm-stat"><div class="adm-stat-n" style="color:var(--gold)">${pendF}</div><div class="adm-stat-l">Pendientes</div></div>
+      <div class="adm-stat"><div class="adm-stat-n" style="color:#2ecc71">${doneF}</div><div class="adm-stat-l">Completadas</div></div>
+      <div class="adm-stat"><div class="adm-stat-n">${hoyF}</div><div class="adm-stat-l">Hoy</div></div>
     </div>
+    ${barberTabs}
     <div class="adm-view-tabs">
       <button class="adm-view-tab${admView==='cal'?' active':''}" onclick="setAdmView('cal')">Calendario</button>
       <button class="adm-view-tab${admView==='lista'?' active':''}" onclick="setAdmView('lista')">Lista</button>
       <button class="adm-export" style="margin-left:auto" onclick="exportCSV()">⬇ CSV</button>
     </div>`;
-    if(admView==='cal') return nav+statsBar+renderCalAdmin(bks,today);
-    let filtered=bks;
-    if(admFilter==='pendientes') filtered=bks.filter(b=>b.estado==='pendiente');
-    else if(admFilter==='hoy') filtered=bks.filter(b=>b.fecha===today);
-    else if(admFilter==='completadas') filtered=bks.filter(b=>b.estado==='completada');
-    else if(admFilter==='canceladas') filtered=bks.filter(b=>b.estado==='cancelada');
+    if(admView==='cal') return nav+statsBar+renderCalAdmin(bksFilt,today);
+    let filtered=bksFilt;
+    if(admFilter==='pendientes') filtered=bksFilt.filter(b=>b.estado==='pendiente');
+    else if(admFilter==='hoy') filtered=bksFilt.filter(b=>b.fecha===today);
+    else if(admFilter==='completadas') filtered=bksFilt.filter(b=>b.estado==='completada');
+    else if(admFilter==='canceladas') filtered=bksFilt.filter(b=>b.estado==='cancelada');
     filtered=[...filtered].sort((a,b)=>a.fecha===b.fecha?a.hora.localeCompare(b.hora):a.fecha.localeCompare(b.fecha));
+    const showBarberoCol=barbers.length>1;
     return nav+statsBar+`<div class="adm-toolbar">${['todas','pendientes','hoy','completadas','canceladas'].map(f=>`<button class="fil-btn ${admFilter===f?'active':''}" onclick="setFilter('${f}')">${f.charAt(0).toUpperCase()+f.slice(1)}</button>`).join('')}</div>
     <div class="adm-table-wrap">${filtered.length===0?`<div class="adm-empty">Sin reservas</div>`:
-    `<table class="adm-table"><thead><tr><th>ID</th><th>Fecha</th><th>Hora</th><th>Servicio</th><th>Cliente</th><th>Teléfono</th><th>Estado</th><th></th></tr></thead>
+    `<table class="adm-table"><thead><tr><th>ID</th><th>Fecha</th><th>Hora</th>${showBarberoCol?'<th>Barbero</th>':''}<th>Servicio</th><th>Cliente</th><th>Teléfono</th><th>Estado</th><th></th></tr></thead>
     <tbody>${filtered.map(b=>`<tr>
       <td style="font-size:.72rem;color:var(--muted)">${b.id}</td>
-      <td>${fmtDate(b.fecha)}</td><td>${b.hora}</td><td>${b.servicio}</td><td>${b.clienteNombre}</td>
+      <td>${fmtDate(b.fecha)}</td><td>${b.hora}</td>
+      ${showBarberoCol?`<td style="color:var(--gold);font-weight:600;font-size:.8rem">${b.barbero||'—'}</td>`:''}
+      <td>${b.servicio}</td><td>${b.clienteNombre}</td>
       <td><a href="https://wa.me/${b.clienteTelefono.replace(/\D/g,'')}" target="_blank" style="color:var(--gold)">${b.clienteTelefono}</a></td>
       <td><span class="sbadge s-${b.estado==='pendiente'?'pend':b.estado==='completada'?'done':'canc'}">${b.estado}</span></td>
       <td><div class="a-btns">
