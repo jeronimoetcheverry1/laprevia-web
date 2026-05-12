@@ -10,6 +10,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
@@ -910,6 +912,41 @@ const CFG = {
   phone: '56949627813',
 };
 // ═══════════════════════════════════════════════
+// FIREBASE — Reservas sincronizadas entre dispositivos
+// 1. Ve a https://console.firebase.google.com
+// 2. Crea un proyecto → Agrega una app web → copia la config aquí
+// 3. Ve a Firestore Database → Crear base de datos → Modo de prueba
+// ═══════════════════════════════════════════════
+const FIREBASE_CFG = (()=>{ try{ return JSON.parse(localStorage.getItem('lp_firebase_cfg')||'{}'); }catch{ return {}; } })();
+let db = null;
+let bookingsCache = [];
+let firestoreReady = false;
+(function initFirebase(){
+  if(!FIREBASE_CFG.projectId){
+    bookingsCache = JSON.parse(localStorage.getItem(CFG.storageKey)||'[]');
+    firestoreReady = true;
+    return;
+  }
+  try{
+    const app = firebase.initializeApp(FIREBASE_CFG);
+    db = firebase.firestore(app);
+    db.collection('reservas').orderBy('timestamp','asc').onSnapshot(snap=>{
+      bookingsCache = snap.docs.map(d=>({...d.data(), id:d.id}));
+      firestoreReady = true;
+      const ac=document.getElementById('adminContent');
+      if(ac && ac.innerHTML) renderAdmin();
+    }, err=>{
+      console.error('Firestore:',err);
+      bookingsCache = JSON.parse(localStorage.getItem(CFG.storageKey)||'[]');
+      firestoreReady = true;
+    });
+  } catch(e){
+    console.error('Firebase init:',e);
+    bookingsCache = JSON.parse(localStorage.getItem(CFG.storageKey)||'[]');
+    firestoreReady = true;
+  }
+})();
+// ═══════════════════════════════════════════════
 // NOTIFICACIONES (EmailJS + ntfy.sh push)
 // ═══════════════════════════════════════════════
 const SK_NOTIF='lp_notif_cfg';
@@ -1146,8 +1183,25 @@ let calYear, calMonth;
 function initCal(){ const n=new Date(); calYear=n.getFullYear(); calMonth=n.getMonth(); }
 initCal();
 
-function getBookings(){ return JSON.parse(localStorage.getItem(CFG.storageKey)||'[]'); }
-function saveBookings(bks){ localStorage.setItem(CFG.storageKey,JSON.stringify(bks)); }
+function getBookings(){ return bookingsCache; }
+async function addBookingToDb(booking){
+  if(db){
+    try{ await db.collection('reservas').doc(booking.id).set(booking); }
+    catch(e){ console.error('Firestore write:',e); bookingsCache.push(booking); }
+  } else {
+    bookingsCache.push(booking);
+    localStorage.setItem(CFG.storageKey, JSON.stringify(bookingsCache));
+  }
+}
+async function updateStatusInDb(id, estado){
+  if(db){
+    try{ await db.collection('reservas').doc(id).update({estado}); }
+    catch(e){ console.error('Firestore update:',e); }
+  } else {
+    const b=bookingsCache.find(b=>b.id===id); if(b) b.estado=estado;
+    localStorage.setItem(CFG.storageKey, JSON.stringify(bookingsCache));
+  }
+}
 function getTakenSlots(d,barbero){ return getBookings().filter(b=>b.fecha===d&&b.estado!=='cancelada'&&(!barbero||b.barbero===barbero)).map(b=>b.hora); }
 function genSlots(){
   const s=[]; let h=CFG.openHour,m=0;
@@ -1246,9 +1300,18 @@ function renderCal(){
 function selDate(d){ bk.date=d; renderBooking(); }
 function calMove(d){ calMonth+=d; if(calMonth<0){calMonth=11;calYear--;} if(calMonth>11){calMonth=0;calYear++;} renderBooking(); }
 function renderSlots(){
-  const slots=genSlots(), taken=getTakenSlots(bk.date, bk.barber?.name);
   const dObj=new Date(bk.date+'T00:00:00');
   const fd=dObj.toLocaleDateString('es-CL',{weekday:'long',day:'numeric',month:'long'});
+  if(!firestoreReady){
+    setTimeout(()=>renderBooking(), 400);
+    return `<div class="b-title">Elige la hora</div>
+    <p style="font-size:.82rem;color:var(--muted);margin-bottom:1rem">${fd.charAt(0).toUpperCase()+fd.slice(1)}</p>
+    <p style="text-align:center;color:var(--muted);font-size:.85rem;padding:2rem 0">Verificando disponibilidad...</p>
+    <div class="b-actions" style="margin-top:1.25rem">
+      <button class="btn-back" onclick="prevStep()">← Volver</button>
+    </div>`;
+  }
+  const slots=genSlots(), taken=getTakenSlots(bk.date, bk.barber?.name);
   return `<div class="b-title">Elige la hora</div>
   <p style="font-size:.82rem;color:var(--muted);margin-bottom:1rem">${fd.charAt(0).toUpperCase()+fd.slice(1)}</p>
   <div class="time-slots">${slots.map(s=>{
@@ -1294,12 +1357,14 @@ function renderConfirm(){
     <button class="btn-next" onclick="confirmBooking()">Confirmar reserva ✓</button>
   </div>`;
 }
-function confirmBooking(){
+async function confirmBooking(){
+  const btn=document.querySelector('.btn-next');
+  if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
   const svc=SERVICES[bk.service];
   const id='RES-'+Math.floor(100000+Math.random()*900000);
   const barberName=bk.barber?bk.barber.name:(getBarbersStore()[0]?.name||'Barbero');
   const booking={id,servicio:svc.name,precio:svc.price,barbero:barberName,fecha:bk.date,hora:bk.time,clienteNombre:bk.client.name,clienteTelefono:bk.client.phone,clienteEmail:bk.client.email||'',nota:bk.client.note,estado:'pendiente',timestamp:Date.now()};
-  const bks=getBookings(); bks.push(booking); saveBookings(bks);
+  await addBookingToDb(booking);
   bk.bookingId=id; bk.step=6;
   const dObj=new Date(bk.date+'T00:00:00');
   const fd=dObj.toLocaleDateString('es-CL',{weekday:'long',day:'numeric',month:'long'});
@@ -1542,7 +1607,8 @@ function renderDashboard(){
   const pend=bks.filter(b=>b.estado==='pendiente').length;
   const done=bks.filter(b=>b.estado==='completada').length;
   const hoy=bks.filter(b=>b.fecha===today&&b.estado!=='cancelada').length;
-  const sections=[['reservas','Reservas'],['galeria','Galería'],['slides','Header'],['horarios','Horarios'],['barberos','Barberos'],['notif','Notif.']];
+  const fbOk=FIREBASE_CFG.projectId;
+  const sections=[['reservas','Reservas'],['galeria','Galería'],['slides','Header'],['horarios','Horarios'],['barberos','Barberos'],['notif','Notif.'],['firebase',fbOk?'☁ Nube':'☁ Nube']];
   const nav=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;gap:.6rem">
     <div style="font-size:.82rem;color:var(--muted)">${pend} pendiente${pend!==1?'s':''}</div>
     <button class="btn-back" onclick="admLogout()">Cerrar sesión</button></div>
@@ -1600,6 +1666,7 @@ function renderDashboard(){
   if(admSection==='horarios') return nav+renderHorariosAdmin();
   if(admSection==='barberos') return nav+renderBarberosAdmin();
   if(admSection==='notif') return nav+renderNotifAdmin();
+  if(admSection==='firebase') return nav+renderFirebaseAdmin();
   return nav;
 }
 
@@ -1986,6 +2053,45 @@ function copyEmailTpl(which){
   if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(done).catch(()=>{}); }
   else{ const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);done(); }
 }
+// ─── Firebase admin ────────────────────────────
+function renderFirebaseAdmin(){
+  const cfg=FIREBASE_CFG, connected=db!==null, configured=!!cfg.projectId;
+  return `<div style="font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:1rem">Sincronización en la nube</div>
+  <div style="background:${connected?'rgba(46,204,113,.08)':'rgba(255,255,255,.03)'};border:1px solid ${connected?'rgba(46,204,113,.3)':'var(--border)'};border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;align-items:center;gap:.75rem">
+    <div style="width:10px;height:10px;border-radius:50%;background:${connected?'#2ecc71':'#555'};flex-shrink:0"></div>
+    <div>
+      <div style="font-size:.83rem;font-weight:600;color:${connected?'#2ecc71':'var(--muted)'}">${connected?'Conectado a Firebase':'Sin conexión a Firebase'}</div>
+      <div style="font-size:.75rem;color:var(--muted);margin-top:.15rem">${connected?`Proyecto: ${cfg.projectId} &mdash; las reservas se sincronizan entre dispositivos en tiempo real`:'Las reservas solo se guardan en este dispositivo'}</div>
+    </div>
+  </div>
+  <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:1.1rem 1.25rem;margin-bottom:1.25rem;font-size:.8rem;line-height:2;color:var(--muted)">
+    <strong style="color:#fff;font-size:.85rem;display:block;margin-bottom:.3rem">Cómo obtener tu configuración (5 minutos, gratis)</strong>
+    1. Ve a <strong style="color:var(--gold)">console.firebase.google.com</strong> e inicia sesión con tu cuenta Google<br>
+    2. Haz clic en <strong style="color:var(--text)">Agregar proyecto</strong> &rarr; ponle un nombre (ej: laprevia-reservas) &rarr; desactiva Google Analytics &rarr; <strong style="color:var(--text)">Crear proyecto</strong><br>
+    3. En el menú lateral &rarr; <strong style="color:var(--text)">Firestore Database</strong> &rarr; <strong style="color:var(--text)">Crear base de datos</strong> &rarr; elegir <strong style="color:var(--text)">Modo de prueba</strong> &rarr; <strong style="color:var(--text)">Listo</strong><br>
+    4. Ícono de engranaje (arriba a la izquierda) &rarr; <strong style="color:var(--text)">Configuración del proyecto</strong> &rarr; sección <strong style="color:var(--text)">Tus apps</strong> &rarr; ícono web <code style="background:var(--bg);padding:.1rem .35rem;border-radius:3px;color:var(--gold)">&lt;/&gt;</code><br>
+    5. Registra la app (nombre cualquiera) &rarr; copia el bloque <code style="background:var(--bg);padding:.1rem .35rem;border-radius:3px;color:var(--gold)">firebaseConfig = { ... }</code> y pégalo abajo
+  </div>
+  <div style="margin-bottom:.5rem;font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Pega aquí el bloque firebaseConfig</div>
+  <textarea id="fbPasteArea" style="width:100%;min-height:170px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.85rem;color:var(--text);font-family:monospace;font-size:.77rem;resize:vertical;line-height:1.7;outline:none" placeholder='const firebaseConfig = {&#10;  apiKey: "AIzaSy...",&#10;  authDomain: "mi-proyecto.firebaseapp.com",&#10;  projectId: "mi-proyecto",&#10;  storageBucket: "mi-proyecto.appspot.com",&#10;  messagingSenderId: "123456789",&#10;  appId: "1:123456789:web:abc123"&#10;};'>${configured?JSON.stringify(cfg,null,2):''}</textarea>
+  <div id="fbSaveMsg" style="font-size:.78rem;min-height:1.3rem;margin:.45rem 0"></div>
+  <button class="btn-gold" style="width:100%;margin-top:.15rem" onclick="saveFirebaseCfg()">Guardar y conectar</button>
+  ${configured?`<button style="width:100%;margin-top:.5rem;background:none;border:1px solid var(--border);color:var(--muted);padding:.55rem;border-radius:6px;font-size:.75rem;cursor:pointer" onclick="if(confirm('¿Eliminar la configuración? Las reservas quedarán solo en este dispositivo.')){localStorage.removeItem('lp_firebase_cfg');location.reload();}">Eliminar configuración</button>`:''}`;
+}
+function saveFirebaseCfg(){
+  const raw=(document.getElementById('fbPasteArea')?.value||'').trim();
+  const msg=document.getElementById('fbSaveMsg');
+  const match=raw.match(/\{[\s\S]*\}/);
+  if(!match){ msg.textContent='✕ No se encontró un bloque de configuración válido.'; msg.style.color='#e74c3c'; return; }
+  try{
+    const cfg=JSON.parse(match[0]);
+    const missing=['apiKey','authDomain','projectId','storageBucket','messagingSenderId','appId'].filter(k=>!cfg[k]);
+    if(missing.length){ msg.textContent='✕ Faltan campos: '+missing.join(', '); msg.style.color='#e74c3c'; return; }
+    localStorage.setItem('lp_firebase_cfg',JSON.stringify(cfg));
+    msg.textContent='✓ Configuración guardada. Conectando...'; msg.style.color='#2ecc71';
+    setTimeout(()=>location.reload(),1200);
+  } catch(e){ msg.textContent='✕ Formato inválido: '+e.message; msg.style.color='#e74c3c'; }
+}
 function renderCalAdmin(bks, today){
   const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const DAYS=['L','M','X','J','V','S','D'];
@@ -2039,7 +2145,11 @@ function renderCalAdmin(bks, today){
 }
 function fmtDate(s){const[y,m,d]=s.split('-');return`${d}/${m}/${y}`;}
 function setFilter(f){admFilter=f;renderAdmin();}
-function updStatus(id,estado){const bks=getBookings();const b=bks.find(b=>b.id===id);if(b)b.estado=estado;saveBookings(bks);renderAdmin();}
+async function updStatus(id,estado){
+  const b=bookingsCache.find(b=>b.id===id); if(b) b.estado=estado;
+  renderAdmin();
+  await updateStatusInDb(id,estado);
+}
 function exportCSV(){
   const bks=getBookings();
   const h='ID,Servicio,Barbero,Fecha,Hora,Cliente,Teléfono,Nota,Estado\n';
